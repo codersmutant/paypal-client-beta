@@ -60,7 +60,8 @@ class WPPPC_Server_Manager {
             __('PayPal Proxy Servers', 'woo-paypal-proxy-client'),
             'manage_woocommerce',
             'wpppc-servers',
-            array($this, 'render_servers_page')
+            array($this, 'render_servers_page'),
+            5
         );
     }
     
@@ -156,7 +157,7 @@ class WPPPC_Server_Manager {
                             <td>
                                 <?php echo esc_html($server->name); ?>
                                 <?php if ($server->is_selected) : ?>
-                                    <span class="selected-badge"><?php _e('(Selected)', 'woo-paypal-proxy-client'); ?></span>
+                                    <span class="selected-badge"><?php _e('Selected', 'woo-paypal-proxy-client'); ?></span>
                                 <?php endif; ?>
                             </td>
                             <td><?php echo esc_url($server->url); ?></td>
@@ -223,7 +224,7 @@ class WPPPC_Server_Manager {
                         <div class="form-field">
                             <label for="capacity_limit"><?php _e('Capacity Limit', 'woo-paypal-proxy-client'); ?></label>
                             <input type="number" id="capacity_limit" name="capacity_limit" min="1" value="1000" required>
-                            <p class="description"><?php _e('Maximum number of transactions this server can handle before switching to the next server.', 'woo-paypal-proxy-client'); ?></p>
+                            <p class="description"><?php _e('Maximum amount of transactions this server can handle before switching to the next available server.', 'woo-paypal-proxy-client'); ?></p>
                         </div>
                         
                         <div class="form-field">
@@ -237,7 +238,7 @@ class WPPPC_Server_Manager {
                         <div class="form-field">
                             <label for="priority"><?php _e('Priority', 'woo-paypal-proxy-client'); ?></label>
                             <input type="number" id="priority" name="priority" min="0" value="0" required>
-                            <p class="description"><?php _e('Lower numbers have higher priority. Servers with the same priority will be used in a round-robin fashion.', 'woo-paypal-proxy-client'); ?></p>
+                            <p class="description"><?php _e('Lower numbers have higher priority. Servers with the same priority will be used one by one in turns.', 'woo-paypal-proxy-client'); ?></p>
                         </div>
                         
                         <div class="form-field submit-field">
@@ -326,7 +327,7 @@ class WPPPC_Server_Manager {
                 .wpppc-modal-content {
                     position: relative;
                     background-color: #fefefe;
-                    margin: 10% auto;
+                    margin: 10px auto;
                     padding: 20px;
                     border: 1px solid #888;
                     width: 50%;
@@ -362,7 +363,7 @@ class WPPPC_Server_Manager {
                 .form-field input,
                 .form-field select {
                     width: 100%;
-                    padding: 8px;
+                    padding: 4px;
                 }
                 
                 #generate-secret {
