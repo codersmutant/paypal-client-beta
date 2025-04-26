@@ -279,8 +279,9 @@ class WPPPC_API_Handler {
         
         // Generate a hash for security
         $timestamp = time();
-        $hash_data = $timestamp . $total . $currency . $this->server->api_key;
-        $hash = hash_hmac('sha256', $hash_data, $this->server->api_secret);
+        //$hash_data = $timestamp . $total . $currency . $this->server->api_key;
+        $hash_data = $timestamp . $this->server->api_key;
+        $hash = hash_hmac('sha256', $timestamp, $this->server->api_secret);
         
         // Build the iframe URL
         $params = array(
