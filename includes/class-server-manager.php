@@ -92,30 +92,7 @@ class WPPPC_Server_Manager {
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         dbDelta($sql);
         
-        // Add default server if table is empty
-        $count = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
-        if ($count == 0) {
-            $default_url = get_option('wpppc_proxy_url', '');
-            $default_api_key = get_option('wpppc_api_key', '');
-            $default_api_secret = get_option('wpppc_api_secret', '');
-            
-            if (!empty($default_url) && !empty($default_api_key)) {
-                $wpdb->insert(
-                    $table_name,
-                    array(
-                        'name' => 'Default Server',
-                        'url' => $default_url,
-                        'api_key' => $default_api_key,
-                        'api_secret' => $default_api_secret,
-                        'capacity_limit' => 1000,
-                        'current_usage' => 0,
-                        'is_active' => 1,
-                        'is_selected' => 1,
-                        'priority' => 0,
-                    )
-                );
-            }
-        }
+        
     }
     
      /**
@@ -897,7 +874,11 @@ public function add_server_usage($server_id, $amount) {
             wp_die();
         }
         
+         
+        
         global $wpdb;
+        $count = $wpdb->get_var("SELECT COUNT(*) FROM {$this->table_name}");
+        $is_first_server = ($count == 0);
         
         $result = $wpdb->insert(
             $this->table_name,
@@ -908,7 +889,7 @@ public function add_server_usage($server_id, $amount) {
                 'api_secret' => sanitize_text_field($server_data['api_secret']),
                 'capacity_limit' => intval($server_data['capacity_limit']),
                 'is_active' => intval($server_data['is_active']),
-                'is_selected' => 0, // New servers are not selected by default
+                'is_selected' => $is_first_server ? 1 : 0, // Select if it's the first server
                 'priority' => intval($server_data['priority']),
             )
         );
@@ -999,12 +980,13 @@ public function add_server_usage($server_id, $amount) {
         // Count total servers
         global $wpdb;
         $total_servers = $wpdb->get_var("SELECT COUNT(*) FROM {$this->table_name}");
-        
+        /*
         // Don't allow deleting the last server
         if ($total_servers <= 1) {
             wp_send_json_error(array('message' => 'Cannot delete the last server. At least one server must exist.'));
             wp_die();
         }
+        */
         
         // Check if this is the selected server
         $is_selected = $wpdb->get_var($wpdb->prepare("SELECT is_selected FROM {$this->table_name} WHERE id = %d", $server_id));

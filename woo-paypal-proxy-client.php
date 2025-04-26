@@ -58,13 +58,13 @@ function wpppc_init() {
     require_once WPPPC_PLUGIN_DIR . 'includes/class-server-manager.php';
     require_once WPPPC_PLUGIN_DIR . 'includes/class-api-handler.php';
     require_once WPPPC_PLUGIN_DIR . 'includes/class-woo-paypal-gateway.php';
-    require_once WPPPC_PLUGIN_DIR . 'includes/class-admin.php';
+    //require_once WPPPC_PLUGIN_DIR . 'includes/class-admin.php';
     require_once WPPPC_PLUGIN_DIR . 'includes/class-product-mapping.php';
     
     // Initialize classes
     WPPPC_Server_Manager::get_instance(); // Use singleton
     $api_handler = new WPPPC_API_Handler();
-    $admin = new WPPPC_Admin();
+    //$admin = new WPPPC_Admin();
     $product_mapping = new WPPPC_Product_Mapping();
     
     // Add payment gateway to WooCommerce
@@ -225,10 +225,7 @@ add_filter("plugin_action_links_$plugin", 'wpppc_settings_link');
  * Plugin activation hook
  */
 function wpppc_activate() {
-    // Create necessary database tables or options if needed
-    add_option('wpppc_proxy_url', '');
-    add_option('wpppc_api_key', '');
-    add_option('wpppc_api_secret', md5(uniqid(rand(), true)));
+    
     
     // Create product mapping table
     global $wpdb;
@@ -859,6 +856,22 @@ function wpppc_check_decimal_schema() {
         error_log('Schema Check - Table not found: ' . $table_name);
     }
 }
+
+
+function wpppc_no_servers_notice() {
+    if (!current_user_can('manage_woocommerce')) return;
+    
+    // Check if any servers exist
+    $server_manager = WPPPC_Server_Manager::get_instance();
+    $servers = $server_manager->get_all_servers();
+    
+    if (empty($servers)) {
+        echo '<div class="error"><p>' . 
+             __('PayPal Proxy: No servers configured. Please <a href="admin.php?page=wpppc-servers">add a server</a> to enable PayPal payments.', 'woo-paypal-proxy-client') . 
+             '</p></div>';
+    }
+}
+add_action('admin_notices', 'wpppc_no_servers_notice');
 
 /**
  * Plugin deactivation hook

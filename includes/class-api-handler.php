@@ -51,13 +51,21 @@ class WPPPC_API_Handler {
     
     /**
      * Legacy initialization using old global options
-     */
+     
     private function legacy_init() {
         $this->server = new stdClass();
         $this->server->url = get_option('wpppc_proxy_url', '');
         $this->server->api_key = get_option('wpppc_api_key', '');
         $this->server->api_secret = get_option('wpppc_api_secret', '');
     }
+    */
+    
+    private function legacy_init() {
+        $this->server = new stdClass();
+        $this->server->url = '';
+        $this->server->api_key = '';
+        $this->server->api_secret = '';
+   }
     
     /**
      * Send order details to Website B

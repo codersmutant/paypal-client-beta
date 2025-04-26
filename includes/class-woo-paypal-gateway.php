@@ -290,10 +290,19 @@ class WPPPC_PayPal_Gateway extends WC_Payment_Gateway {
             }
         }
         
-        // Fallback to global settings if no server found
+        // show admin notice when no api key and secret found
         if (empty($api_key) || empty($api_secret)) {
-            $api_key = get_option('wpppc_api_key');
-            $api_secret = get_option('wpppc_api_secret');
+            // No valid server found, log error and trigger notice on next admin page load
+            wpppc_log('PayPal Proxy - No valid server found for processing callback for order ID: ' . $order_id);
+            
+            // For immediate feedback in the order
+            if ($order) {
+                $order->add_order_note(__('PayPal payment processing failed: No valid proxy server configured.', 'woo-paypal-proxy-client'));
+                $order->update_status('failed');
+            }
+            
+            wp_die(__('Payment processing error: No valid server configuration found.', 'woo-paypal-proxy-client'), '', array('response' => 500));
+            
         }
         
         // Verify hash
