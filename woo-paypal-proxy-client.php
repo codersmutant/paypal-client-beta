@@ -16,6 +16,8 @@
 if (!defined('ABSPATH')) {
     exit;
 }
+add_action('plugins_loaded', 'wpppc_check_decimal_schema', 5); // Run before main init
+
 
 // Define plugin constants
 define('WPPPC_PLUGIN_DIR', plugin_dir_path(__FILE__));
@@ -506,6 +508,8 @@ function wpppc_create_order_handler() {
         // Store the server ID in the order meta
         $order->update_meta_data('_wpppc_server_id', $server->id);
         
+
+        
         // Set order status
         $order->update_status('pending', __('Awaiting PayPal payment', 'woo-paypal-proxy-client'));
         $order->save();
@@ -570,8 +574,7 @@ if (!empty($proxy_url) && !empty($api_key)) {
         $body = json_decode(wp_remote_retrieve_body($response), true);
         error_log('PayPal Proxy Client - Data response: ' . print_r($body, true));
         
-        // Track server usage if the request was successful
-        $server_manager->increment_server_usage($server_id);
+        
     }
 } else {
     error_log('PayPal Proxy Client - Missing proxy URL or API key, cannot send order details');
@@ -586,9 +589,9 @@ if (!empty($proxy_url) && !empty($api_key)) {
         wp_send_json_success(array(
             'order_id'   => $order_id,
             'order_key'  => $order->get_order_key(),
-            'server_id'  => $server->id,
             'proxy_data' => array(
                 'server_name' => $server->name,
+                'server_id' => $server->id,
                 'message' => 'Order created successfully'
             ),
         ));
@@ -677,6 +680,8 @@ function wpppc_complete_order_handler() {
     $transaction_id = isset($_POST['transaction_id']) ? sanitize_text_field($_POST['transaction_id']) : '';
     $server_id = isset($_POST['server_id']) ? intval($_POST['server_id']) : 0;
     
+    wpppc_log("Initial server_id from request: $server_id");
+    
     if (!$order_id || !$paypal_order_id) {
         error_log('PayPal Proxy - Invalid order data in completion request');
         wp_send_json_error(array(
@@ -687,6 +692,11 @@ function wpppc_complete_order_handler() {
     
     $order = wc_get_order($order_id);
     
+    if (!$server_id) {
+        $server_id = $order->get_meta('_wpppc_server_id', true);
+        wpppc_log("Retrieved server_id from order metadata: $server_id");
+    }
+    
     if (!$order) {
         error_log('PayPal Proxy - Order not found: ' . $order_id);
         wp_send_json_error(array(
@@ -695,10 +705,13 @@ function wpppc_complete_order_handler() {
         wp_die();
     }
     
+     error_log('PayPal Proxy - Order total: ' . $order->get_total());
+    
     try {
         // Log order details
         if (WP_DEBUG) {
             error_log('PayPal Proxy - Processing order: ' . $order_id . ', Status: ' . $order->get_status());
+            error_log('PayPal Proxy - Server ID: ' . $server_id);
         }
         
         // Check if payment is already completed to avoid duplicate processing
@@ -711,7 +724,7 @@ function wpppc_complete_order_handler() {
         }
         
          // Update server information if provided
-        if ($server_id) {
+          if ($server_id) {
             update_post_meta($order->get_id(), '_wpppc_server_id', $server_id);
         } else {
             // If server_id wasn't provided, try to get it from order meta
@@ -741,17 +754,19 @@ function wpppc_complete_order_handler() {
         if ($server_id) {
             // Get the order total amount
             $order_amount = floatval($order->get_total());
+            error_log('PayPal Proxy - Order amount to add to usage: ' . $order_amount);
             
             // Get server manager instance
             require_once WPPPC_PLUGIN_DIR . 'includes/class-server-manager.php';
             $server_manager = WPPPC_Server_Manager::get_instance();
             
-            // Update usage with order amount
-            $server_manager->add_server_usage($server_id, $order_amount);
+            // Update usage with order amount - MAKE SURE THIS CALL WORKS
+            $result = $server_manager->add_server_usage($server_id, $order_amount);
+            error_log('PayPal Proxy - Result of add_server_usage: ' . ($result ? 'success' : 'failed'));
             
-            if (WP_DEBUG) {
-                error_log('PayPal Proxy - Added ' . $order_amount . ' to server usage for server ID ' . $server_id);
-            }
+            error_log('PayPal Proxy - Added ' . $order_amount . ' to server usage for server ID ' . $server_id);
+        } else {
+            error_log('PayPal Proxy - No server_id found, cannot add usage');
         }
         
         // Empty cart
@@ -791,6 +806,57 @@ function wpppc_log($message) {
         } else {
             error_log('WPPPC Debug: ' . $message);
         }
+    }
+}
+
+
+function wpppc_check_decimal_schema() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'wpppc_proxy_servers';
+    
+    error_log('Schema Check - Checking table structure for ' . $table_name);
+    
+    // Check if the table exists
+    if($wpdb->get_var("SHOW TABLES LIKE '$table_name'") === $table_name) {
+        // Get the current_usage column type
+        $column_info = $wpdb->get_row("SHOW COLUMNS FROM $table_name LIKE 'current_usage'");
+        
+        if($column_info) {
+            error_log('Schema Check - current_usage column type: ' . $column_info->Type);
+            
+            // If it's not decimal, convert it
+            if(strpos(strtolower($column_info->Type), 'decimal') === false) {
+                error_log('Schema Check - Converting current_usage to decimal type');
+                $wpdb->query("ALTER TABLE $table_name MODIFY COLUMN current_usage decimal(10,2) NOT NULL DEFAULT 0");
+                
+                // Check if it worked
+                $new_column_info = $wpdb->get_row("SHOW COLUMNS FROM $table_name LIKE 'current_usage'");
+                error_log('Schema Check - New current_usage column type: ' . $new_column_info->Type);
+            }
+        } else {
+            error_log('Schema Check - current_usage column not found!');
+        }
+        
+        // Also check the capacity_limit column
+        $column_info = $wpdb->get_row("SHOW COLUMNS FROM $table_name LIKE 'capacity_limit'");
+        
+        if($column_info) {
+            error_log('Schema Check - capacity_limit column type: ' . $column_info->Type);
+            
+            // If it's not decimal, convert it
+            if(strpos(strtolower($column_info->Type), 'decimal') === false) {
+                error_log('Schema Check - Converting capacity_limit to decimal type');
+                $wpdb->query("ALTER TABLE $table_name MODIFY COLUMN capacity_limit decimal(10,2) NOT NULL DEFAULT 1000");
+                
+                // Check if it worked
+                $new_column_info = $wpdb->get_row("SHOW COLUMNS FROM $table_name LIKE 'capacity_limit'");
+                error_log('Schema Check - New capacity_limit column type: ' . $new_column_info->Type);
+            }
+        } else {
+            error_log('Schema Check - capacity_limit column not found!');
+        }
+    } else {
+        error_log('Schema Check - Table not found: ' . $table_name);
     }
 }
 

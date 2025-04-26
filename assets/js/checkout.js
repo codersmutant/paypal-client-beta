@@ -297,6 +297,12 @@
     // Show a loading message to the user
     showLoading('Finalizing your payment...');
     
+     var serverId = '';
+    if (payload.proxy_data && payload.proxy_data.server_id) {
+        serverId = payload.proxy_data.server_id;
+        console.log('Using server ID from proxy_data:', serverId);
+    }
+    
     // Complete the payment directly from Website A (not from the iframe)
     $.ajax({
         type: 'POST',
@@ -306,7 +312,8 @@
             nonce: wpppc_params.nonce,
             order_id: orderID,
             paypal_order_id: payload.orderID,
-            transaction_id: payload.transactionID || ''
+            transaction_id: payload.transactionID || '',
+            server_id: serverId
         },
         success: function(response) {
             console.log('Payment completion response:', response);

@@ -68,10 +68,7 @@ class WPPPC_API_Handler {
             return new WP_Error('invalid_order', __('Invalid order object', 'woo-paypal-proxy-client'));
         }
         
-        // Track server usage since we're actually using it for a transaction
-        if (isset($this->server->id)) {
-            $this->server_manager->increment_server_usage($this->server->id);
-        }
+
         
         // Store the server ID used for this order
         if (isset($this->server->id)) {
@@ -139,10 +136,7 @@ class WPPPC_API_Handler {
             }
         }
         
-        // Track server usage since we're actually using it for a transaction
-        if (isset($this->server->id)) {
-            $this->server_manager->increment_server_usage($this->server->id);
-        }
+        
         
         // Generate security hash
         $timestamp = time();

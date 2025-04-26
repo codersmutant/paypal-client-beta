@@ -639,25 +639,34 @@ class WPPPC_Server_Manager {
 public function add_server_usage($server_id, $amount) {
     global $wpdb;
     
+    // Debug logging
+    error_log('Server Manager - add_server_usage called with server_id: ' . $server_id . ', amount: ' . $amount);
+    
     // Validate inputs
     $server_id = intval($server_id);
     $amount = floatval($amount);
     
     if (!$server_id || $amount <= 0) {
+        error_log('Server Manager - Invalid input: server_id=' . $server_id . ', amount=' . $amount);
         return false;
     }
     
     // Get current usage
-    $current_usage = $wpdb->get_var(
-        $wpdb->prepare("SELECT current_usage FROM {$this->table_name} WHERE id = %d", $server_id)
-    );
+    $query = $wpdb->prepare("SELECT current_usage FROM {$this->table_name} WHERE id = %d", $server_id);
+    error_log('Server Manager - Query: ' . $query);
+    
+    $current_usage = $wpdb->get_var($query);
     
     if (null === $current_usage) {
+        error_log('Server Manager - Server not found for ID: ' . $server_id);
         return false; // Server not found
     }
     
+    error_log('Server Manager - Current usage: ' . $current_usage);
+    
     // Add amount to current usage
     $new_usage = floatval($current_usage) + $amount;
+    error_log('Server Manager - New usage: ' . $new_usage);
     
     // Update server usage and last_used timestamp
     $result = $wpdb->update(
@@ -669,13 +678,19 @@ public function add_server_usage($server_id, $amount) {
         array('id' => $server_id)
     );
     
+    if ($result === false) {
+        error_log('Server Manager - Database update failed. Error: ' . $wpdb->last_error);
+    } else {
+        error_log('Server Manager - Database update successful. Rows affected: ' . $result);
+    }
+    
     return $result !== false;
 }
     
     /**
      * Get the currently selected server
      * FIXED: Removed automatic usage tracking from this method
-     */
+     
     public function get_selected_server() {
         global $wpdb;
         $server = $wpdb->get_row("SELECT * FROM {$this->table_name} WHERE is_selected = 1 LIMIT 1");
@@ -697,6 +712,22 @@ public function add_server_usage($server_id, $amount) {
         
         return $server;
     }
+    */
+    
+    public function get_selected_server() {
+    global $wpdb;
+    $server = $wpdb->get_row("SELECT * FROM {$this->table_name} WHERE is_selected = 1 LIMIT 1");
+    
+    if ($server) {
+        // Add capacity warning in logs if server is over capacity
+        if (floatval($server->current_usage) >= floatval($server->capacity_limit)) {
+            wpppc_log("WARNING: Selected server (ID: {$server->id}) is over capacity: {$server->current_usage}/{$server->capacity_limit}");
+        }
+    }
+    
+    return $server;
+}
+    
     
     /**
      * Get server for payment processing
@@ -705,10 +736,7 @@ public function add_server_usage($server_id, $amount) {
     public function get_server_for_payment() {
         $server = $this->get_selected_server();
         
-        if ($server) {
-            // Only increment usage when actually processing a payment
-            $this->increment_server_usage($server->id);
-        }
+        
         
         return $server;
     }
@@ -990,57 +1018,69 @@ public function add_server_usage($server_id, $amount) {
      * FIXED: Only increment usage when actually using a server for payment
      */
     public function get_next_available_server() {
-        // First, check if there's a manually selected server
-        $selected_server = $this->get_selected_server();
-        
-        if ($selected_server) {
-            // If there's a selected server, always use it but don't increment usage here
-            return $selected_server;
-        }
-        
-        global $wpdb;
-        
-        // Step 1: Try to find a server that has not reached capacity limit
+    global $wpdb;
+    
+    // Check if there's a manually selected server
+    $selected_server = $this->get_selected_server();
+    
+    // CHANGED: Only use selected server if it hasn't reached capacity
+    if ($selected_server && floatval($selected_server->current_usage) < floatval($selected_server->capacity_limit)) {
+        wpppc_log("Using manually selected server (ID: {$selected_server->id}) - Usage: {$selected_server->current_usage}/{$selected_server->capacity_limit}");
+        return $selected_server;
+    } else if ($selected_server) {
+        wpppc_log("Selected server (ID: {$selected_server->id}) has exceeded capacity ({$selected_server->current_usage}/{$selected_server->capacity_limit}). Finding next available server.");
+    }
+    
+    // Step 1: Try to find a server that has not reached capacity limit
+    $server = $wpdb->get_row(
+        "SELECT * FROM {$this->table_name} 
+        WHERE is_active = 1 
+        AND current_usage < capacity_limit 
+        ORDER BY priority ASC, last_used ASC, id ASC 
+        LIMIT 1"
+    );
+    
+    // Step 2: If no server is available, get the one with lowest usage percentage
+    if (!$server) {
+        wpppc_log("No servers under capacity limit found. Selecting server with lowest usage ratio.");
+        $server = $wpdb->get_row(
+            "SELECT *, (current_usage / capacity_limit) as usage_ratio 
+            FROM {$this->table_name} 
+            WHERE is_active = 1 
+            ORDER BY usage_ratio ASC, priority ASC, id ASC 
+            LIMIT 1"
+        );
+    }
+    
+    // Step 3: If still no server, get any active server
+    if (!$server) {
+        wpppc_log("No active servers found. Selecting any active server.");
         $server = $wpdb->get_row(
             "SELECT * FROM {$this->table_name} 
             WHERE is_active = 1 
-            AND current_usage < capacity_limit 
-            ORDER BY priority ASC, last_used ASC, id ASC 
+            ORDER BY priority ASC, id ASC 
             LIMIT 1"
         );
-        
-        // Step 2: If no server is available, get the one with lowest usage percentage
-        if (!$server) {
-            $server = $wpdb->get_row(
-                "SELECT *, (current_usage / capacity_limit) as usage_ratio 
-                FROM {$this->table_name} 
-                WHERE is_active = 1 
-                ORDER BY usage_ratio ASC, priority ASC, id ASC 
-                LIMIT 1"
-            );
-        }
-        
-        // Step 3: If still no server, get any active server
-        if (!$server) {
-            $server = $wpdb->get_row(
-                "SELECT * FROM {$this->table_name} 
-                WHERE is_active = 1 
-                ORDER BY priority ASC, id ASC 
-                LIMIT 1"
-            );
-        }
-        
-        // Step 4: Last resort, get any server regardless of active status
-        if (!$server) {
-            $server = $wpdb->get_row(
-                "SELECT * FROM {$this->table_name} 
-                ORDER BY priority ASC, id ASC 
-                LIMIT 1"
-            );
-        }
-        
-        return $server;
     }
+    
+    // Step 4: Last resort, get any server regardless of active status
+    if (!$server) {
+        wpppc_log("No servers available at all. Using any server as last resort.");
+        $server = $wpdb->get_row(
+            "SELECT * FROM {$this->table_name} 
+            ORDER BY priority ASC, id ASC 
+            LIMIT 1"
+        );
+    }
+    
+    // If we found a different server than the selected one, update the selection
+    if ($server && $selected_server && $server->id != $selected_server->id) {
+        wpppc_log("Automatically switching from server ID {$selected_server->id} to server ID {$server->id}");
+        $this->set_selected_server($server->id);
+    }
+    
+    return $server;
+}
     
     /**
      * Increment server usage
@@ -1069,9 +1109,7 @@ public function add_server_usage($server_id, $amount) {
     public function get_server_with_tracking($server_id) {
         $server = $this->get_server($server_id);
         
-        if ($server) {
-            $this->increment_server_usage($server_id);
-        }
+        
         
         return $server;
     }
