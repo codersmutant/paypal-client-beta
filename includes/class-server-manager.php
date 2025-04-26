@@ -640,33 +640,33 @@ public function add_server_usage($server_id, $amount) {
     global $wpdb;
     
     // Debug logging
-    error_log('Server Manager - add_server_usage called with server_id: ' . $server_id . ', amount: ' . $amount);
+    wpppc_log('Server Manager - add_server_usage called with server_id: ' . $server_id . ', amount: ' . $amount);
     
     // Validate inputs
     $server_id = intval($server_id);
     $amount = floatval($amount);
     
     if (!$server_id || $amount <= 0) {
-        error_log('Server Manager - Invalid input: server_id=' . $server_id . ', amount=' . $amount);
+        wpppc_log('Server Manager - Invalid input: server_id=' . $server_id . ', amount=' . $amount);
         return false;
     }
     
-    // Get current usage
-    $query = $wpdb->prepare("SELECT current_usage FROM {$this->table_name} WHERE id = %d", $server_id);
-    error_log('Server Manager - Query: ' . $query);
+    // Get current usage and capacity
+    $server = $wpdb->get_row($wpdb->prepare(
+        "SELECT id, current_usage, capacity_limit, is_selected FROM {$this->table_name} WHERE id = %d", 
+        $server_id
+    ));
     
-    $current_usage = $wpdb->get_var($query);
-    
-    if (null === $current_usage) {
-        error_log('Server Manager - Server not found for ID: ' . $server_id);
-        return false; // Server not found
+    if (!$server) {
+        wpppc_log('Server Manager - Server not found for ID: ' . $server_id);
+        return false;
     }
     
-    error_log('Server Manager - Current usage: ' . $current_usage);
+    wpppc_log('Server Manager - Current usage: ' . $server->current_usage . ', Capacity: ' . $server->capacity_limit);
     
     // Add amount to current usage
-    $new_usage = floatval($current_usage) + $amount;
-    error_log('Server Manager - New usage: ' . $new_usage);
+    $new_usage = floatval($server->current_usage) + $amount;
+    wpppc_log('Server Manager - New usage: ' . $new_usage);
     
     // Update server usage and last_used timestamp
     $result = $wpdb->update(
@@ -679,12 +679,57 @@ public function add_server_usage($server_id, $amount) {
     );
     
     if ($result === false) {
-        error_log('Server Manager - Database update failed. Error: ' . $wpdb->last_error);
-    } else {
-        error_log('Server Manager - Database update successful. Rows affected: ' . $result);
+        wpppc_log('Server Manager - Database update failed. Error: ' . $wpdb->last_error);
+        return false;
     }
     
-    return $result !== false;
+    // Check if this server is now over capacity and is the selected one
+    if ($server->is_selected && $new_usage >= floatval($server->capacity_limit)) {
+        wpppc_log('Server Manager - Server ID ' . $server_id . ' is now at or over capacity and is the selected server.');
+        
+        // 1. Mark this server as inactive since it's at capacity
+        $wpdb->update(
+            $this->table_name,
+            array('is_active' => 0),
+            array('id' => $server_id)
+        );
+        
+        wpppc_log('Server Manager - Marked server ID ' . $server_id . ' as inactive due to capacity limit.');
+        
+        // 2. Find another active server to use
+        $new_server = $wpdb->get_row(
+            "SELECT * FROM {$this->table_name} 
+             WHERE is_active = 1 AND id != {$server_id}
+             ORDER BY priority ASC, last_used ASC, id ASC 
+             LIMIT 1"
+        );
+        
+        // 3. If we found one, make it the selected server
+        if ($new_server) {
+            // First, unselect all servers
+            $wpdb->query("UPDATE {$this->table_name} SET is_selected = 0");
+            
+            // Then, select the new server
+            $wpdb->update(
+                $this->table_name,
+                array('is_selected' => 1),
+                array('id' => $new_server->id)
+            );
+            
+            wpppc_log('Server Manager - Switched to server ID ' . $new_server->id . ' because previous server reached capacity.');
+        } else {
+            wpppc_log('Server Manager - No other active servers available. The system will continue using the over-capacity server.');
+            
+            // Re-activate the current server since there's no alternative
+            $wpdb->update(
+                $this->table_name,
+                array('is_active' => 1),
+                array('id' => $server_id)
+            );
+        }
+    }
+    
+    return true;
 }
     
     /**
@@ -734,8 +779,9 @@ public function add_server_usage($server_id, $amount) {
      * NEW METHOD: Use this when actually processing a payment to track usage
      */
     public function get_server_for_payment() {
-        $server = $this->get_selected_server();
+        //$server = $this->get_selected_server();
         
+        $server = $this->get_next_available_server();
         
         
         return $server;
