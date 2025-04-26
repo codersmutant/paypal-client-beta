@@ -857,6 +857,18 @@ public function add_server_usage($server_id, $amount) {
             wp_die();
         }
         
+        // Check if server is active
+        if (!$server->is_active) {
+            wp_send_json_error(array('message' => 'Cannot select an inactive server'));
+            wp_die();
+        }
+        
+        // Check if server has reached capacity limit
+        if (floatval($server->current_usage) >= floatval($server->capacity_limit)) {
+            wp_send_json_error(array('message' => 'Cannot select a server that has reached its capacity limit'));
+            wp_die();
+        }
+        
         // Set this server as the selected one
         $this->set_selected_server($server_id);
         
