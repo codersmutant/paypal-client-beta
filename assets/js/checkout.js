@@ -493,6 +493,10 @@ function hideLoading() {
         return data;
     }
     
+    $('form.checkout').on('change', 'input[name="billing_first_name"], input[name="billing_last_name"], input[name="billing_email"], input[name="billing_address_1"]', function() {
+        $('body').trigger('update_checkout');
+    });
+    
     // Initialize on document ready
     $(document).ready(init);
     
