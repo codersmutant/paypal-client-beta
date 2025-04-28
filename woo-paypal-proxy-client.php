@@ -781,13 +781,18 @@ function wpppc_complete_order_handler() {
         // Complete the order payment
         $order->payment_complete($transaction_id);
         
+        $gateway = new WPPPC_PayPal_Gateway();
+        $seller_protection = $gateway->get_seller_protection($paypal_order_id, $server_id);
+        error_log('WPPPC Debug: Retrieved seller protection from endpoint: ' . $seller_protection);
+        
         // Add order note
         $server_note = $server_id ? " (Server ID: $server_id)" : "";
         $order->add_order_note(
-            sprintf(__('PayPal payment completed. PayPal Order ID: %s, Transaction ID: %s%s', 'woo-paypal-proxy-client'),
+            sprintf(__('PayPal payment completed. PayPal Order ID: %s, Transaction ID: %s, Server ID: %s, Seller Protection: %s', 'woo-paypal-proxy-client'),
                 $paypal_order_id,
                 $transaction_id,
-                $server_note
+                $server_id ? $server_id : 'N/A',
+                $seller_protection
             )
         );
         
@@ -797,6 +802,7 @@ function wpppc_complete_order_handler() {
         // Store PayPal transaction details
         update_post_meta($order->get_id(), '_paypal_order_id', $paypal_order_id);
         update_post_meta($order->get_id(), '_paypal_transaction_id', $transaction_id);
+        update_post_meta($order->get_id(), '_paypal_seller_protection', $seller_protection);
         
         if ($server_id) {
             // Get the order total amount

@@ -351,4 +351,74 @@ class WPPPC_PayPal_Gateway extends WC_Payment_Gateway {
             exit;
         }
     }
+    
+    
+    /**
+ * Get seller protection status from proxy server
+ */
+public function get_seller_protection($paypal_order_id, $server_id = 0) {
+    // Log what we're doing
+    error_log('Fetching seller protection for PayPal order: ' . $paypal_order_id);
+    
+    // Get API handler with server ID if provided
+    $api_handler = new WPPPC_API_Handler($server_id);
+    $server = $api_handler->get_server();
+    
+    if (!$server || empty($server->url) || empty($server->api_key) || empty($server->api_secret)) {
+        error_log('Missing server credentials for getting seller protection');
+        return 'UNKNOWN';
+    }
+    
+    // Generate security parameters
+    $timestamp = time();
+    $hash_data = $timestamp . $paypal_order_id . $server->api_key;
+    $hash = hash_hmac('sha256', $hash_data, $server->api_secret);
+    
+    // Build request URL with security parameters
+    $url = trailingslashit($server->url) . 'wp-json/wppps/v1/seller-protection/' . $paypal_order_id;
+    $args = array(
+        'timeout' => 15,
+        'headers' => array(
+            'User-Agent' => 'WooCommerce PayPal Proxy Client/' . WPPPC_VERSION,
+        ),
+    );
+    
+    // Add query parameters
+    $url = add_query_arg(array(
+        'api_key' => $server->api_key,
+        'timestamp' => $timestamp,
+        'hash' => $hash,
+    ), $url);
+    
+    error_log('Making request to: ' . $url);
+    
+    // Make the request
+    $response = wp_remote_get($url, $args);
+    
+    // Check for errors
+    if (is_wp_error($response)) {
+        error_log('Error fetching seller protection: ' . $response->get_error_message());
+        return 'UNKNOWN';
+    }
+    
+    $response_code = wp_remote_retrieve_response_code($response);
+    if ($response_code !== 200) {
+        error_log('Invalid response code: ' . $response_code);
+        return 'UNKNOWN';
+    }
+    
+    // Parse response body
+    $body = json_decode(wp_remote_retrieve_body($response), true);
+    
+    if (!isset($body['success']) || !$body['success']) {
+        error_log('Request unsuccessful');
+        return 'UNKNOWN';
+    }
+    
+    // Get seller protection status
+    $seller_protection = isset($body['seller_protection']) ? $body['seller_protection'] : 'UNKNOWN';
+    error_log('Retrieved seller protection status: ' . $seller_protection);
+    
+    return $seller_protection;
+}
 }
