@@ -120,6 +120,7 @@ class WPPPC_Server_Manager {
                         <th><?php _e('Capacity', 'woo-paypal-proxy-client'); ?></th>
                         <th><?php _e('Status', 'woo-paypal-proxy-client'); ?></th>
                         <th><?php _e('Priority', 'woo-paypal-proxy-client'); ?></th>
+                        <th><?php _e('Product Mapping', 'woo-paypal-proxy-client'); ?></th>
                         <th><?php _e('Actions', 'woo-paypal-proxy-client'); ?></th>
                     </tr>
                 </thead>
@@ -153,6 +154,27 @@ class WPPPC_Server_Manager {
                                 <?php endif; ?>
                             </td>
                             <td><?php echo esc_html($server->priority); ?></td>
+                            <td>
+                            <?php 
+                            if (!empty($server->product_id_pool)) {
+                                $ids = explode(',', $server->product_id_pool);
+                                $count = count(array_filter(array_map('trim', $ids)));
+                                echo sprintf(_n('%d product ID', '%d product IDs', $count, 'woo-paypal-proxy-client'), $count);
+                                
+                                // Optionally display a small preview of the IDs
+                                if ($count > 0) {
+                                    $preview = implode(', ', array_slice(array_filter(array_map('trim', $ids)), 0, 3));
+                                    if ($count > 3) {
+                                        $preview .= '...';
+                                    }
+                                    echo '<br><small>' . esc_html($preview) . '</small>';
+                                }
+                            } else {
+                                echo '<em>' . __('None', 'woo-paypal-proxy-client') . '</em>';
+                            }
+                            ?>
+                        </td>
+                            
                             <td>
                                 <?php if (!$server->is_selected) : ?>
                                     <a href="#" class="use-server" data-id="<?php echo esc_attr($server->id); ?>"><?php _e('Use This Server', 'woo-paypal-proxy-client'); ?></a> | 
