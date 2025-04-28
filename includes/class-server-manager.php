@@ -218,6 +218,12 @@ class WPPPC_Server_Manager {
                             <p class="description"><?php _e('Lower numbers have higher priority. Servers with the same priority will be used one by one in turns.', 'woo-paypal-proxy-client'); ?></p>
                         </div>
                         
+                        <div class="form-field">
+                            <label for="product_id_pool"><?php _e('Product ID Pool (Site B)', 'woo-paypal-proxy-client'); ?></label>
+                            <textarea id="product_id_pool" name="product_id_pool" rows="3"></textarea>
+                            <p class="description"><?php _e('Enter comma-separated product IDs from Site B. These will be randomly assigned to order products.', 'woo-paypal-proxy-client'); ?></p>
+                        </div>
+                        
                         <div class="form-field submit-field">
                             <button type="submit" class="button button-primary"><?php _e('Save Server', 'woo-paypal-proxy-client'); ?></button>
                             <div class="form-status"></div>
@@ -423,6 +429,7 @@ class WPPPC_Server_Manager {
                                     $('#capacity_limit').val(server.capacity_limit);
                                     $('#is_active').val(server.is_active);
                                     $('#priority').val(server.priority);
+                                    $('#product_id_pool').val(server.product_id_pool);
                                     
                                     $('#modal-title').text('<?php _e('Edit Server', 'woo-paypal-proxy-client'); ?>');
                                     $('#server-form-modal').show();
@@ -891,6 +898,7 @@ public function add_server_usage($server_id, $amount) {
                 'is_active' => intval($server_data['is_active']),
                 'is_selected' => $is_first_server ? 1 : 0, // Select if it's the first server
                 'priority' => intval($server_data['priority']),
+                'product_id_pool' => sanitize_textarea_field($server_data['product_id_pool']),
             )
         );
         
@@ -945,7 +953,7 @@ public function add_server_usage($server_id, $amount) {
                 'capacity_limit' => intval($server_data['capacity_limit']),
                 'is_active' => intval($server_data['is_active']),
                 'priority' => intval($server_data['priority']),
-                // Keep the is_selected value unchanged
+                'product_id_pool' => sanitize_textarea_field($server_data['product_id_pool']),
             ),
             array('id' => $server_id)
         );

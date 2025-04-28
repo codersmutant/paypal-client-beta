@@ -59,13 +59,13 @@ function wpppc_init() {
     require_once WPPPC_PLUGIN_DIR . 'includes/class-api-handler.php';
     require_once WPPPC_PLUGIN_DIR . 'includes/class-woo-paypal-gateway.php';
     //require_once WPPPC_PLUGIN_DIR . 'includes/class-admin.php';
-    require_once WPPPC_PLUGIN_DIR . 'includes/class-product-mapping.php';
+    //require_once WPPPC_PLUGIN_DIR . 'includes/class-product-mapping.php';
     
     // Initialize classes
     WPPPC_Server_Manager::get_instance(); // Use singleton
     $api_handler = new WPPPC_API_Handler();
     //$admin = new WPPPC_Admin();
-    $product_mapping = new WPPPC_Product_Mapping();
+    //$product_mapping = new WPPPC_Product_Mapping();
     
     // Add payment gateway to WooCommerce
     add_filter('woocommerce_payment_gateways', 'wpppc_add_gateway');
@@ -251,6 +251,9 @@ function wpppc_activate() {
     
     // Update schema for existing tables
     wpppc_update_db_schema();
+    
+    //product pool column to server table
+    wpppc_update_server_table_for_product_pool();
 }
 register_activation_hook(__FILE__, 'wpppc_activate');
 
@@ -289,7 +292,8 @@ function wpppc_maybe_update_db() {
     // Check if we need to update the database
     if (get_option('wpppc_db_version') != WPPPC_VERSION) {
         wpppc_update_db_schema();
-        wpppc_update_db_schema_for_amounts(); // Add this line
+        wpppc_update_db_schema_for_amounts(); 
+        wpppc_update_server_table_for_product_pool();
         update_option('wpppc_db_version', WPPPC_VERSION);
     }
 }
@@ -488,7 +492,9 @@ function wpppc_create_order_handler() {
                     'description' => $product->get_short_description() ? substr(wp_strip_all_tags($product->get_short_description()), 0, 127) : '',
                     'product_id' => $product->get_id()
                 );
-                $line_items = add_product_mappings_to_items($line_items);
+                
+                // Pass server ID to the mapping function
+                $line_items = add_product_mappings_to_items($line_items, $server->id);
                 
                 $cart_subtotal += $cart_item['line_subtotal'];
                 $tax_total += $cart_item['line_tax'];
@@ -631,23 +637,67 @@ function wpppc_get_product_mapping_status($product_id) {
 /**
  * Add product mappings to line items
  */
-function add_product_mappings_to_items($line_items) {
-    // Check if product mapping class is available
-    if (!class_exists('WPPPC_Product_Mapping')) {
+
+function add_product_mappings_to_items($line_items, $server_id = 0) {
+    if (empty($line_items) || !$server_id) {
         return $line_items;
     }
     
-    // Get product mapping instance
-    $product_mapping = new WPPPC_Product_Mapping();
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'wpppc_proxy_servers';
     
-    // Add mapping info to line items
-    foreach ($line_items as &$item) {
-        if (!empty($item['product_id'])) {
-            // Get mapping directly using our enhanced method that checks parent products
-            $server_product_id = $product_mapping->get_product_mapping($item['product_id']);
-            if ($server_product_id) {
-                $item['mapped_product_id'] = $server_product_id;
-            }
+    // Get product ID pool for this server
+    $product_id_pool = $wpdb->get_var($wpdb->prepare(
+        "SELECT product_id_pool FROM {$table_name} WHERE id = %d",
+        $server_id
+    ));
+    
+    if (empty($product_id_pool)) {
+        wpppc_log("No product ID pool found for server ID: $server_id");
+        return $line_items;
+    }
+    
+    // Parse comma-separated list into array and trim whitespace
+    $product_ids = array_map('trim', explode(',', $product_id_pool));
+    $product_ids = array_filter($product_ids); // Remove empty values
+    
+    if (empty($product_ids)) {
+        wpppc_log("Product ID pool is empty for server ID: $server_id");
+        return $line_items;
+    }
+    
+    wpppc_log("Product ID pool for server $server_id: " . print_r($product_ids, true));
+    
+    // Shuffle the product IDs for randomness
+    shuffle($product_ids);
+    
+    // Count unique products in order
+    $unique_products = count($line_items);
+    
+    // Check if we have enough product IDs in the pool
+    $available_ids = count($product_ids);
+    $needed_ids = min($available_ids, $unique_products);
+    
+    wpppc_log("Order has $unique_products unique products, using $needed_ids IDs from pool");
+    
+    // Get the IDs we'll use (might be fewer than line items if pool is smaller)
+    $selected_ids = array_slice($product_ids, 0, $needed_ids);
+    
+    // If we have more line items than IDs, repeat the IDs
+    if ($unique_products > $needed_ids) {
+        $additional_needed = $unique_products - $needed_ids;
+        
+        // Repeat IDs if necessary
+        for ($i = 0; $i < $additional_needed; $i++) {
+            $selected_ids[] = $product_ids[$i % $available_ids];
+        }
+    }
+    
+    // Assign IDs to line items
+    foreach ($line_items as $index => &$item) {
+        if (isset($selected_ids[$index])) {
+            $item['mapped_product_id'] = $selected_ids[$index];
+            wpppc_log("Mapped line item " . ($index + 1) . " to product ID: " . $selected_ids[$index]);
         }
     }
     
@@ -872,6 +922,21 @@ function wpppc_no_servers_notice() {
     }
 }
 add_action('admin_notices', 'wpppc_no_servers_notice');
+
+function wpppc_update_server_table_for_product_pool() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'wpppc_proxy_servers';
+    
+    if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") === $table_name) {
+        $column_exists = $wpdb->get_results("SHOW COLUMNS FROM {$table_name} LIKE 'product_id_pool'");
+        
+        if (empty($column_exists)) {
+            $wpdb->query("ALTER TABLE {$table_name} ADD COLUMN `product_id_pool` TEXT NULL");
+            wpppc_log('Added product_id_pool column to server table');
+        }
+    }
+}
+
 
 /**
  * Plugin deactivation hook
